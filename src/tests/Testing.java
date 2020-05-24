@@ -5,19 +5,12 @@ import annotations.Post;
 import annotations.Pre;
 import fr.sorbonne_u.components.interfaces.OfferedI;
 import fr.sorbonne_u.components.interfaces.RequiredI;
-import fr.sorbonne_u.components.ports.AbstractOutboundPort;
 import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
-import javassist.Loader;
 
 public class Testing {
 
-	/*public static void main(String[] args) throws Exception {
-		//op(AdditionClientI.class,AdditionFournisseurI.class);
-		op2(AdditionClientI.class,AdditionOutboundPort.class);
-	}*/
-	
 	public static void op(Class<? extends RequiredI> IR, Class<? extends OfferedI> IF) throws NoSuchMethodException, SecurityException {
 
 		Method[] methodsIR = IR.getDeclaredMethods();
@@ -41,48 +34,45 @@ public class Testing {
 		}	
 	}
 	
-	public static void op2(Class<? extends RequiredI> IR, Class<? extends AbstractOutboundPort> outboundPort) throws Exception {
+	public static void op2(Class<?> IR, Class<?> outboundPort, ClassPool pool) throws Exception {
 		
-		//verify that the outboundPort implements the required interface IR
-		assert IR.isAssignableFrom(outboundPort);
-		
-		//get all methods of the required interface IR
 		Method[] methodsIR = IR.getDeclaredMethods();
 
-		//for each method of IR add contract verification code in the corresponding method of the OutboundPort
 		for (Method mIR : methodsIR) {
-			
+
+			//Partie annotation
+			if (mIR.getAnnotation(Pre.class) == null) continue;
 			Pre annotation = mIR.getAnnotation(Pre.class);
 			Method mOutboundPort = outboundPort.getMethod(mIR.getName(), mIR.getParameterTypes());
 
 			String expression = annotation.expression();
 			String[] args = annotation.args();
-			
-			for(int i = 0; i< args.length; i++)
-			{
-				expression = expression.replaceAll("\\b"+args[i]+"\\b", "\\$"+(i+1));
+
+			for (int i = 0; i < args.length; i++) {
+				expression = expression.replaceAll("\\b" + args[i] + "\\b", "\\$" + (i + 1));
 			}
-			
-			System.out.println("if !("+ expression +")"+" throw new Exception();");
-			
+
 			// Partie javassist
+
+			CtClass cc = pool.get(outboundPort.getCanonicalName());
+			cc.defrost();
+
+			Class<?>[] paramTypes = mOutboundPort.getParameterTypes();
+			CtClass[] params = new CtClass[paramTypes.length];
+
+			for (int i = 0; i < params.length; i++) {
+				params[i] = pool.get(paramTypes[i].getName());
+			}
+
+			CtMethod cm = cc.getDeclaredMethod(mOutboundPort.getName(), params);
 			
-			ClassPool pool = ClassPool.getDefault();
-			Loader cl = new Loader(pool);
-			CtClass cc = pool.getCtClass(outboundPort.getCanonicalName());
-			
-			//CtClass[] param = new CtClass[2];
-			//param[0] = pool.get("java.lang.Integer");
-			//param[1] = pool.get("java.lang.Integer");
-			
-			CtMethod cm = cc.getDeclaredMethod(mOutboundPort.getName());
-			cm.insertBefore("if !("+ expression +")"+" throw new Exception();");
+			// insérer le code au debut de la methode
+			cm.insertBefore("if (!(" + expression + "))" + "throw new IllegalArgumentException();");
 			cc.writeFile();
-			Class<?> c = cl.loadClass(outboundPort.getName());
-			Object obj = c.newInstance();
-			Method methode = c.getDeclaredMethod(mOutboundPort.getName(), Integer.class,Integer.class);
-			methode.invoke(obj,new Integer(-5),new Integer(11));
-			 
+			
+			//byte[] classFile = cc.toBytecode();
+			//HotSwapper hs = new HotSwapper(8000);
+			//hs.reload(cc.getName(), classFile);
 		}
 	}
 }
